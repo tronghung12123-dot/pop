@@ -207,6 +207,96 @@ app.get('/get-userid', async (req, res) => {
     }
 });
 
+// SERVER TU FOLLOW TIKTOK
+app.post('/follow', async (req, res) => {
+    const { username, cookie, user_id } = req.body;
+    if (!username || !cookie) return res.status(400).json({ error: 'Missing username or cookie' });
+
+    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+    // Parse cookie string thanh object
+    const cookieObj = {};
+    cookie.split(';').forEach(part => {
+        const idx = part.indexOf('=');
+        if (idx !== -1) cookieObj[part.slice(0, idx).trim()] = part.slice(idx+1).trim();
+    });
+    const csrf = cookieObj['tt_csrf_token'] || '';
+    const msToken = cookieObj['msToken'] || '';
+
+    // Lay user_id neu chua co
+    let uid = user_id;
+    if (!uid) {
+        try {
+            const r = await fetchWithCookie(`https://www.tiktok.com/@${username}`, cookie, ua);
+            const patterns = [/"authorId":"(\d+)"/, /"uid":"(\d+)"/, /,"id":"(\d{15,22})"/];
+            for (const pat of patterns) {
+                const m = r.text.match(pat);
+                if (m && m[1] && m[1].length > 5) { uid = m[1]; break; }
+            }
+        } catch(e) {}
+    }
+    if (!uid) return res.json({ ok: false, error: 'Khong lay duoc user_id' });
+
+    // Tao params va signature
+    const params = `aid=1988&user_id=${uid}&from=0&from_pre=-1&enter_from=user_profile&followChannel=profile&type=1&msToken=${msToken}`;
+    const xb = genXBogus(params, ua);
+    const xg = genXGnarly(params, '', ua);
+
+    try {
+        const followUrl = `https://www.tiktok.com/api/commit/follow/user/?${params}&X-Bogus=${xb}`;
+        const urlObj = new URL(followUrl);
+        const result = await new Promise((resolve, reject) => {
+            const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname + urlObj.search,
+                method: 'POST',
+                headers: {
+                    'User-Agent': ua,
+                    'Cookie': cookie,
+                    'Referer': `https://www.tiktok.com/@${username}`,
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'vi-VN,vi;q=0.9',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': '0',
+                    'X-Secsdk-Csrf-Token': csrf,
+                    'X-Gnarly': xg,
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Origin': 'https://www.tiktok.com',
+                    'Sec-Fetch-Site': 'same-origin',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Dest': 'empty',
+                },
+            };
+            const req2 = https.request(options, (r2) => {
+                const chunks = [];
+                r2.on('data', c => chunks.push(c));
+                r2.on('end', () => resolve({ status: r2.status_code || r2.statusCode, text: Buffer.concat(chunks).toString() }));
+            });
+            req2.on('error', reject);
+            req2.end();
+        });
+
+        const text = result.text;
+        let data = {};
+        try { data = JSON.parse(text); } catch(e) {}
+
+        const status = data.status_code ?? data.statusCode ?? -1;
+        const fs = data.followStatus ?? data.follow_status ?? -1;
+
+        res.json({
+            ok: status === 0 || fs === 1,
+            status_code: status,
+            follow_status: fs,
+            message: data.message || data.msg || '',
+            raw: text.slice(0, 200),
+            user_id: uid,
+            xbogus: xb,
+        });
+    } catch(e) {
+        res.json({ ok: false, error: e.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log('TikTok Sign Server v2 running on port ' + PORT);
 });
