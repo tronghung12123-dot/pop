@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -86,10 +87,62 @@ function genXGnarly(query, body, ua) {
     }
 }
 
+// Ham fetch voi cookie
+function fetchWithCookie(url, cookie, ua) {
+    return new Promise((resolve, reject) => {
+        const urlObj = new URL(url);
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Cookie': cookie || '',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Referer': 'https://www.tiktok.com/',
+                'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124"',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'document',
+                'sec-fetch-mode': 'navigate',
+                'sec-fetch-site': 'same-origin',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            timeout: 15000,
+        };
+        const req = https.request(options, (res) => {
+            const chunks = [];
+            // Handle gzip
+            let stream = res;
+            if (res.headers['content-encoding'] === 'gzip') {
+                const zlib = require('zlib');
+                stream = res.pipe(zlib.createGunzip());
+            } else if (res.headers['content-encoding'] === 'br') {
+                const zlib = require('zlib');
+                stream = res.pipe(zlib.createBrotliDecompress());
+            }
+            stream.on('data', chunk => chunks.push(chunk));
+            stream.on('end', () => resolve({
+                status: res.statusCode,
+                text: Buffer.concat(chunks).toString('utf8'),
+                headers: res.headers,
+            }));
+            stream.on('error', reject);
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+        req.end();
+    });
+}
+
+// ==================== ROUTES ====================
+
 app.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'TikTok Sign Server running' });
+    res.json({ status: 'ok', message: 'TikTok Sign Server running v2' });
 });
 
+// Tao signature
 app.get('/sign', (req, res) => {
     const params = req.query.params || '';
     const ua = req.query.ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -99,6 +152,61 @@ app.get('/sign', (req, res) => {
     res.json({ xbogus, xgnarly, params: params + '&X-Bogus=' + xbogus });
 });
 
+// Lay user_id tu username - SERVER TU SCRAPE
+app.get('/get-userid', async (req, res) => {
+    const username = req.query.username;
+    const cookie = req.query.cookie || '';
+    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+    if (!username) return res.status(400).json({ error: 'Missing username' });
+
+    try {
+        // Cach 1: Scrape HTML profile page
+        const r = await fetchWithCookie(`https://www.tiktok.com/@${username}`, cookie, ua);
+        const text = r.text;
+
+        // Thu nhieu pattern
+        const patterns = [
+            /"authorId":"(\d+)"/,
+            /"uid":"(\d+)"/,
+            /"userId":"(\d+)"/,
+            /,"id":"(\d{15,22})"/,
+            /"user":\{"id":"(\d+)"/,
+            /authorStats.*?"id":"(\d+)"/,
+        ];
+
+        for (const pat of patterns) {
+            const m = text.match(pat);
+            if (m && m[1] && m[1].length > 5) {
+                return res.json({ user_id: m[1], method: 'html_scrape', username });
+            }
+        }
+
+        // Cach 2: API user detail
+        const params = `uniqueId=${username}&aid=1988&app_name=tiktok_web&device_platform=web_pc`;
+        const xb = genXBogus(params, ua);
+        const apiUrl = `https://www.tiktok.com/api/user/detail/?${params}&X-Bogus=${xb}`;
+        const r2 = await fetchWithCookie(apiUrl, cookie, ua);
+
+        try {
+            const data = JSON.parse(r2.text);
+            const uid = data?.userInfo?.user?.id;
+            if (uid) return res.json({ user_id: uid, method: 'api', username });
+        } catch(e) {}
+
+        // Debug: tra ve 500 ky tu HTML de xem TikTok tra ve gi
+        return res.json({
+            user_id: null,
+            error: 'Khong tim thay user_id',
+            html_preview: text.slice(0, 500),
+            status: r.status,
+        });
+
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.listen(PORT, () => {
-    console.log('TikTok Sign Server running on port ' + PORT);
+    console.log('TikTok Sign Server v2 running on port ' + PORT);
 });
