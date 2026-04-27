@@ -1,7 +1,6 @@
 {
   "name": "tiktok-sign-server",
   "version": "1.0.0",
-  "description": "TikTok signature server for X-Bogus and X-Gnarly",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,7 +10,5 @@
   },
   "engines": {
     "node": "20.x"
-
-
   }
 }
