@@ -1,13 +1,28 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-let browser;
+// ---------- HÀM KHỞI TẠO TRÌNH DUYỆT (DÙNG @sparticuz/chromium) ----------
+async function getBrowser() {
+    return await puppeteer.launch({
+        args: [
+            ...chromium.args,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+        ],
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: true
+    });
+}
 
+// ---------- HÀM TIỆN ÍCH ----------
 function parseCookieString(cookieStr) {
     return cookieStr.split(';').map(c => {
         const [name, ...val] = c.trim().split('=');
@@ -15,21 +30,15 @@ function parseCookieString(cookieStr) {
             name: name.trim(),
             value: val.join('='),
             domain: '.tiktok.com',
-            path: '/'
+            path: '/',
+            httpOnly: false,
+            secure: true,
+            sameSite: 'None'
         };
     }).filter(c => c.name && c.value);
 }
 
-async function getBrowser() {
-    if (!browser) {
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-    }
-    return browser;
-}
-
+// ---------- ENDPOINT TẠO X-BOGUS (GIỮ NGUYÊN) ----------
 app.get('/sign', async (req, res) => {
     try {
         const params = req.query.params;
@@ -55,6 +64,7 @@ app.get('/sign', async (req, res) => {
     }
 });
 
+// ---------- ENDPOINT FOLLOW (ĐƯỢC GIỮ NGUYÊN) ----------
 app.post('/follow', async (req, res) => {
     try {
         const { username, cookie } = req.body;
@@ -79,7 +89,7 @@ app.post('/follow', async (req, res) => {
             const buttonText = await page.evaluate(el => el.innerText, followButton);
             if (buttonText.toLowerCase().includes('follow')) {
                 await followButton.click();
-                await new Promise(resolve => setTimeout(resolve, 3000)); // Đợi 3 giây
+                await new Promise(resolve => setTimeout(resolve, 3000));
 
                 if (followResponse) {
                     const respBody = await followResponse.text();
@@ -109,10 +119,12 @@ app.post('/follow', async (req, res) => {
     }
 });
 
+// ---------- ENDPOINT KIỂM TRA SERVER ----------
 app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'TikTok Sign Server running' });
 });
 
+// ---------- KHỞI ĐỘNG ----------
 app.listen(PORT, () => {
     console.log(`Server chạy tại cổng ${PORT}`);
 });
