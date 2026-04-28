@@ -7,7 +7,22 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-// Hàm parse cookie từ chuỗi sang object
+// ---------- HÀM KHỞI TẠO TRÌNH DUYỆT ----------
+async function getBrowser() {
+    return await puppeteer.launch({
+        args: [
+            ...chromium.args,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+        ],
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: true
+    });
+}
+
+// ---------- HÀM TIỆN ÍCH ----------
 function parseCookieString(cookieStr) {
     return cookieStr.split(';').map(c => {
         const [name, ...val] = c.trim().split('=');
@@ -23,48 +38,51 @@ function parseCookieString(cookieStr) {
     }).filter(c => c.name && c.value);
 }
 
-// Hàm khởi tạo trình duyệt
-async function getBrowser() {
-    return await puppeteer.launch({
-        args: [
-            ...chromium.args,
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage'
-        ],
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: true
-    });
-}
-
-// Endpoint tạo X-Bogus (GIỮ NGUYÊN)
+// ---------- ENDPOINT TẠO X-BOGUS (ĐÃ SỬA LỖI) ----------
 app.get('/sign', async (req, res) => {
     try {
         const params = req.query.params;
         if (!params) return res.status(400).json({ error: 'Thiếu params' });
 
-        const browser = await getBrowser();
-        const page = await browser.newPage();
-        await page.goto('https://www.tiktok.com/foryou', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // Hàm tạo X-Bogus (dùng chung cho cả lần thử đầu và retry)
+        async function tryGenerate(browser) {
+            const page = await browser.newPage();
+            await page.goto('https://www.tiktok.com/foryou', {
+                waitUntil: 'networkidle0',
+                timeout: 45000
+            });
+            // Đợi thêm để đảm bảo script load
+            await new Promise(resolve => setTimeout(resolve, 4000));
+            // Chờ hàm sign() xuất hiện
+            await page.waitForFunction(
+                () => typeof window.sign === 'function',
+                { timeout: 15000 }
+            );
+            const xbogus = await page.evaluate((p) => window.sign(p), params);
+            await page.close();
+            return xbogus;
+        }
 
-        const xbogus = await page.evaluate((p) => {
-            if (typeof window.sign !== 'function') {
-                throw new Error('Không tìm thấy hàm sign()');
-            }
-            return window.sign(p);
-        }, params);
+        let xbogus;
+        try {
+            const browser = await getBrowser();
+            xbogus = await tryGenerate(browser);
+        } catch (firstError) {
+            console.warn('Lần thử đầu thất bại, thử lại...', firstError.message);
+            // Thử lại lần 2 với browser mới
+            const browser2 = await getBrowser();
+            xbogus = await tryGenerate(browser2);
+        }
 
-        await page.close();
         console.log(`Tạo X-Bogus thành công: ${xbogus.substring(0, 20)}...`);
         res.json({ xbogus });
     } catch (e) {
         console.error('Lỗi /sign:', e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: e.message || 'Không thể tạo chữ ký' });
     }
 });
 
-// Endpoint follow (GIỮ NGUYÊN)
+// ---------- ENDPOINT FOLLOW (GIỮ NGUYÊN) ----------
 app.post('/follow', async (req, res) => {
     try {
         const { username, cookie } = req.body;
@@ -119,7 +137,7 @@ app.post('/follow', async (req, res) => {
     }
 });
 
-// Endpoint kiểm tra server (GIỮ NGUYÊN)
+// ---------- ENDPOINT KIỂM TRA SERVER ----------
 app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'TikTok Sign Server running' });
 });
