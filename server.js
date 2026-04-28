@@ -38,42 +38,71 @@ function parseCookieString(cookieStr) {
     }).filter(c => c.name && c.value);
 }
 
-// ---------- ENDPOINT TẠO X-BOGUS (ĐÃ SỬA LỖI) ----------
+// ---------- HÀM TẠO X-BOGUS (ĐÃ TỐI ƯU) ----------
+async function generateXbogus(params) {
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+
+    try {
+        // Tắt webdriver detection
+        await page.evaluateOnNewDocument(() => {
+            delete navigator.__proto__.webdriver;
+        });
+
+        // Truy cập trang foryou và chờ mạng ổn định
+        await page.goto('https://www.tiktok.com/foryou', {
+            waitUntil: 'networkidle0',
+            timeout: 60000
+        });
+
+        // Đợi thêm 5 giây cho các script chạy
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        // Chờ hàm sign() xuất hiện, thử tối đa 3 lần
+        let signFound = false;
+        for (let i = 0; i < 3; i++) {
+            try {
+                await page.waitForFunction(
+                    () => typeof window.sign === 'function',
+                    { timeout: 15000 }
+                );
+                signFound = true;
+                break;
+            } catch (e) {
+                console.log(`Lần thử ${i + 1}: chưa thấy sign(), thử lại...`);
+                // Reload trang nếu cần
+                if (i < 2) {
+                    await page.reload({ waitUntil: 'networkidle0', timeout: 60000 });
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+            }
+        }
+
+        if (!signFound) {
+            throw new Error('Không tìm thấy hàm sign() sau 3 lần thử');
+        }
+
+        // Gọi hàm sign()
+        const xbogus = await page.evaluate((p) => {
+            return window.sign(p);
+        }, params);
+
+        await page.close();
+        return xbogus;
+    } catch (e) {
+        await page.close();
+        throw e;
+    }
+}
+
+// ---------- ENDPOINT TẠO X-BOGUS ----------
 app.get('/sign', async (req, res) => {
     try {
         const params = req.query.params;
         if (!params) return res.status(400).json({ error: 'Thiếu params' });
 
-        // Hàm tạo X-Bogus (dùng chung cho cả lần thử đầu và retry)
-        async function tryGenerate(browser) {
-            const page = await browser.newPage();
-            await page.goto('https://www.tiktok.com/foryou', {
-                waitUntil: 'networkidle0',
-                timeout: 45000
-            });
-            // Đợi thêm để đảm bảo script load
-            await new Promise(resolve => setTimeout(resolve, 4000));
-            // Chờ hàm sign() xuất hiện
-            await page.waitForFunction(
-                () => typeof window.sign === 'function',
-                { timeout: 15000 }
-            );
-            const xbogus = await page.evaluate((p) => window.sign(p), params);
-            await page.close();
-            return xbogus;
-        }
-
-        let xbogus;
-        try {
-            const browser = await getBrowser();
-            xbogus = await tryGenerate(browser);
-        } catch (firstError) {
-            console.warn('Lần thử đầu thất bại, thử lại...', firstError.message);
-            // Thử lại lần 2 với browser mới
-            const browser2 = await getBrowser();
-            xbogus = await tryGenerate(browser2);
-        }
-
+        console.log(`Bắt đầu tạo X-Bogus cho params: ${params.substring(0, 50)}...`);
+        const xbogus = await generateXbogus(params);
         console.log(`Tạo X-Bogus thành công: ${xbogus.substring(0, 20)}...`);
         res.json({ xbogus });
     } catch (e) {
