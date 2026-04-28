@@ -49,44 +49,32 @@ async function generateXbogus(params) {
             delete navigator.__proto__.webdriver;
         });
 
-        // Truy cập trang foryou và chờ mạng ổn định
+        // Truy cập trang foryou – dùng domcontentloaded để nhanh hơn
         await page.goto('https://www.tiktok.com/foryou', {
-            waitUntil: 'networkidle0',
+            waitUntil: 'domcontentloaded',
             timeout: 60000
         });
 
-        // Đợi thêm 5 giây cho các script chạy
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Đợi thêm 8 giây cho script tải
+        await new Promise(resolve => setTimeout(resolve, 8000));
 
-        // Chờ hàm sign() xuất hiện, thử tối đa 3 lần
-        let signFound = false;
-        for (let i = 0; i < 3; i++) {
-            try {
-                await page.waitForFunction(
-                    () => typeof window.sign === 'function',
-                    { timeout: 15000 }
-                );
-                signFound = true;
-                break;
-            } catch (e) {
-                console.log(`Lần thử ${i + 1}: chưa thấy sign(), thử lại...`);
-                // Reload trang nếu cần
-                if (i < 2) {
-                    await page.reload({ waitUntil: 'networkidle0', timeout: 60000 });
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                }
-            }
+        // Thử chờ hàm sign(), nếu không có thì reload một lần
+        try {
+            await page.waitForFunction(
+                () => typeof window.sign === 'function',
+                { timeout: 10000 }
+            );
+        } catch (e) {
+            console.log('sign() chưa sẵn sàng, thử reload...');
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+            await new Promise(resolve => setTimeout(resolve, 8000));
+            await page.waitForFunction(
+                () => typeof window.sign === 'function',
+                { timeout: 15000 }
+            );
         }
 
-        if (!signFound) {
-            throw new Error('Không tìm thấy hàm sign() sau 3 lần thử');
-        }
-
-        // Gọi hàm sign()
-        const xbogus = await page.evaluate((p) => {
-            return window.sign(p);
-        }, params);
-
+        const xbogus = await page.evaluate((p) => window.sign(p), params);
         await page.close();
         return xbogus;
     } catch (e) {
