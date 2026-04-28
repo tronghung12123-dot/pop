@@ -5,6 +5,6 @@
   "dependencies": {
     "express": "^4.21.0",
     "puppeteer-core": "^22.11.0",
-    "@sparticuz/chromium": "^125.0.0"
+    "@sparticuz/chromium": "^131.0.0"
   }
 }
