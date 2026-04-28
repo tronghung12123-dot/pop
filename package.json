@@ -1,9 +1,10 @@
 {
-  "name": "sign-server",
+  "name": "tiktok-sign-server",
   "version": "1.0.0",
   "main": "server.js",
   "dependencies": {
     "express": "^4.21.0",
-    "puppeteer": "^22.11.0"
+    "puppeteer-core": "^22.11.0",
+    "@sparticuz/chromium": "^125.0.0"
   }
 }
