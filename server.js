@@ -7,22 +7,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-// ---------- HÀM KHỞI TẠO TRÌNH DUYỆT (DÙNG @sparticuz/chromium) ----------
-async function getBrowser() {
-    return await puppeteer.launch({
-        args: [
-            ...chromium.args,
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage'
-        ],
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: true
-    });
-}
-
-// ---------- HÀM TIỆN ÍCH ----------
+// Hàm parse cookie từ chuỗi sang object
 function parseCookieString(cookieStr) {
     return cookieStr.split(';').map(c => {
         const [name, ...val] = c.trim().split('=');
@@ -38,7 +23,22 @@ function parseCookieString(cookieStr) {
     }).filter(c => c.name && c.value);
 }
 
-// ---------- ENDPOINT TẠO X-BOGUS (GIỮ NGUYÊN) ----------
+// Hàm khởi tạo trình duyệt
+async function getBrowser() {
+    return await puppeteer.launch({
+        args: [
+            ...chromium.args,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+        ],
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: true
+    });
+}
+
+// Endpoint tạo X-Bogus (GIỮ NGUYÊN)
 app.get('/sign', async (req, res) => {
     try {
         const params = req.query.params;
@@ -64,7 +64,7 @@ app.get('/sign', async (req, res) => {
     }
 });
 
-// ---------- ENDPOINT FOLLOW (ĐƯỢC GIỮ NGUYÊN) ----------
+// Endpoint follow (GIỮ NGUYÊN)
 app.post('/follow', async (req, res) => {
     try {
         const { username, cookie } = req.body;
@@ -119,12 +119,11 @@ app.post('/follow', async (req, res) => {
     }
 });
 
-// ---------- ENDPOINT KIỂM TRA SERVER ----------
+// Endpoint kiểm tra server (GIỮ NGUYÊN)
 app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'TikTok Sign Server running' });
 });
 
-// ---------- KHỞI ĐỘNG ----------
 app.listen(PORT, () => {
     console.log(`Server chạy tại cổng ${PORT}`);
 });
